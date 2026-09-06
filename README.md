@@ -38,6 +38,12 @@ Deploy your own instance of AnimeSalt API & Web Player to the cloud instantly:
   - [Deploy to Vercel](#deploy-to-vercel)
   - [Deploy to Railway](#deploy-to-railway)
   - [Deploy to Render](#deploy-to-render)
+- [🛡️ Cloudflare Bypass & Proxy Setup (Essential for Vercel)](#-cloudflare-bypass--proxy-setup-essential-for-vercel)
+  - [Why Cloudflare Challenges Cloud Hosts](#why-cloudflare-challenges-cloud-hosts)
+  - [The 100% Free Solution: Cloudflare Worker Proxy](#the-100-free-solution-cloudflare-worker-proxy)
+  - [Step-by-Step Setup Guide](#step-by-step-setup-guide)
+  - [Alternative Commercial Proxies](#alternative-commercial-proxies)
+- [⚙️ Environment Variables](#-environment-variables)
 - [Local Installation & Setup](#-local-installation--setup)
   - [Prerequisites](#prerequisites)
   - [Quick Start Guide](#quick-start-guide)
@@ -153,6 +159,109 @@ Render provides easy deployment for Web Services.
 3. Build Command: `npm install && npm run build`
 4. Start Command: `npm start`
 5. Click **Create Web Service**.
+
+---
+
+## 🛡️ Cloudflare Bypass & Proxy Setup (Essential for Vercel)
+
+### Why Cloudflare Challenges Cloud Hosts
+When you run this project **locally** on your computer, requests to `https://animesalt.cx` connect directly with 100% success because residential internet connections are trusted.
+
+However, when deployed on **Vercel** (or other AWS/cloud hosting providers), Cloudflare's Bot Fight Mode detects data-center IP ranges and serves an interactive JavaScript challenge:
+```html
+HTTP 403: <title>Just a moment...</title>
+```
+Pure serverless Node.js functions on AWS cannot solve interactive Turnstile challenges on their own.
+
+---
+
+### The 100% Free Solution: Cloudflare Worker Proxy
+Cloudflare **never** challenges or blocks requests that originate from **Cloudflare Workers**, because Workers execute directly inside Cloudflare's own global edge network.
+
+Cloudflare offers a **Free Tier with 100,000 requests per day**, which is more than enough for personal or production use.
+
+```
+┌─────────────────────────┐          ┌─────────────────────────┐          ┌─────────────────────────┐
+│     Vercel Server      │  HTTPS   │    Cloudflare Worker    │ Internal │      animesalt.cx       │
+│   (Serverless API)      ├─────────►│  (Global Edge Network)  ├─────────►│  (Protected Upstream)  │
+│  Sends PROXY_URL req   │          │ Never Challenged by CF  │          │   Returns 200 OK HTML   │
+└─────────────────────────┘          └─────────────────────────┘          └─────────────────────────┘
+```
+
+---
+
+### Step-by-Step Setup Guide (Takes ~2 minutes)
+
+#### 1. Create a Free Worker
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) (create a free account if you don't have one).
+2. In the left-hand navigation, click **Workers & Pages** -> **Create Application**.
+3. Click **Create Worker**.
+4. Give your worker a name (e.g. `animesalt-proxy`) and click **Deploy**.
+
+#### 2. Paste the Worker Code
+Click **Edit code** on your new worker and replace everything in `worker.js` with this code:
+
+```javascript
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    // Forward the request path and query parameters to animesalt.cx
+    const targetUrl = "https://animesalt.cx" + url.pathname + url.search;
+
+    return fetch(targetUrl, {
+      method: request.method,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://animesalt.cx/",
+      },
+    });
+  }
+};
+```
+Click **Deploy** to save and publish your worker.
+
+#### 3. Copy Your Worker URL
+Your worker URL will look like:
+```
+https://animesalt-proxy.YOUR_SUBDOMAIN.workers.dev
+```
+
+#### 4. Configure in Vercel
+1. Open your project on the [Vercel Dashboard](https://vercel.com/dashboard).
+2. Go to **Settings** -> **Environment Variables**.
+3. Add a new variable:
+   - **Key**: `PROXY_URL`
+   - **Value**: `https://animesalt-proxy.YOUR_SUBDOMAIN.workers.dev` (replace with your actual worker URL)
+4. Click **Save**.
+5. Go to the **Deployments** tab -> Click the `...` (three dots) next to your latest deployment -> **Redeploy**.
+
+Once redeployed, every single endpoint (`/api/popular`, `/api/search`, `/api/episodes`, `/api/stream`) will immediately return **200 OK** with live anime data!
+
+---
+
+### Alternative Commercial Proxies
+If you prefer not to use Cloudflare Workers, you can use any commercial rotating or scraping proxy by setting the `SCRAPER_PROXY` environment variable in Vercel:
+
+| Provider | Format for `SCRAPER_PROXY` | Free Tier |
+|---|---|---|
+| **ScraperAPI** | `https://api.scraperapi.com?api_key=YOUR_KEY&url=` | 5,000 req/mo free |
+| **Scrapfly** | `https://api.scrapfly.io/scrape?key=YOUR_KEY&url=` | 1,000 req/mo free |
+| **Webshare** | Configure via HTTP proxy or gateway | 10 proxies free |
+
+---
+
+## ⚙️ Environment Variables
+
+Copy `.env.example` to `.env` for local customization:
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PORT` | No | `3000` | Port number for the Express backend when running locally. |
+| `NODE_ENV` | No | `development` | Node environment mode (`development` or `production`). |
+| `PROXY_URL` | Recommended on Vercel | `""` | URL of your Cloudflare Worker proxy to bypass Cloudflare Bot challenges. |
+| `SCRAPER_PROXY` | Optional | `""` | Commercial scraping proxy gateway (e.g. ScraperAPI). |
 
 ---
 
