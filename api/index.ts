@@ -4,32 +4,142 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 
 const app = express();
+const router = express.Router();
 
 app.use(cors());
 app.use(express.json());
 
 const BASE_URL = "https://animesalt.cx";
 
+// Modern Chrome 133 client headers to bypass Cloudflare Bot Management & WAF
+const CHROME_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate",
+  "Cache-Control": "max-age=0",
+  "Referer": "https://animesalt.cx/",
+  "sec-ch-ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "Upgrade-Insecure-Requests": "1",
+};
+
+const AJAX_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Accept": "*/*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate",
+  "X-Requested-With": "XMLHttpRequest",
+  "Referer": "https://animesalt.cx/",
+  "sec-ch-ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-origin",
+};
+
 const client = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    Referer: BASE_URL,
-  },
+  headers: CHROME_HEADERS,
+  decompress: true,
+  maxRedirects: 5,
 });
 
 const ajaxClient = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    Accept: "*/*",
-    "X-Requested-With": "XMLHttpRequest",
-    Referer: BASE_URL,
-  },
+  headers: AJAX_HEADERS,
+  decompress: true,
+  maxRedirects: 5,
 });
+
+interface FetchPageOptions {
+  isAjax?: boolean;
+  params?: Record<string, any>;
+  timeoutMs?: number;
+}
+
+/**
+ * Resilient page fetcher utilizing Node native fetch (Undici TLS engine)
+ * with automatic fallback to Axios with decompression.
+ */
+async function fetchPage(path: string, options: FetchPageOptions = {}): Promise<string> {
+  const isAjax = !!options.isAjax;
+  let fullUrl = path.startsWith("http") ? path : `${BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
+
+  if (options.params && Object.keys(options.params).length > 0) {
+    const urlObj = new URL(fullUrl);
+    for (const [k, v] of Object.entries(options.params)) {
+      if (v !== undefined && v !== null && v !== "") {
+        urlObj.searchParams.set(k, String(v));
+      }
+    }
+    fullUrl = urlObj.toString();
+  }
+
+  const reqHeaders = isAjax ? AJAX_HEADERS : CHROME_HEADERS;
+  const timeoutMs = options.timeoutMs || 14000;
+
+  // 1. Primary: Native fetch with complete Chrome 133 headers (optimal TLS handshake for Cloudflare)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const resp = await fetch(fullUrl, {
+      method: "GET",
+      headers: reqHeaders,
+      signal: controller.signal,
+      redirect: "follow",
+    });
+    clearTimeout(timer);
+
+    if (resp.ok) {
+      const text = await resp.text();
+      // Ensure response is not a Cloudflare captcha/block page
+      if (!text.includes("Just a moment...") && !text.includes("cf-browser-verification")) {
+        return text;
+      }
+      console.warn(`Direct fetch encountered Cloudflare challenge on: ${fullUrl}`);
+    } else if (resp.status === 404) {
+      const notFoundErr: any = new Error("Page not found (404)");
+      notFoundErr.status = 404;
+      throw notFoundErr;
+    } else {
+      console.warn(`Native fetch returned status ${resp.status} on: ${fullUrl}`);
+    }
+  } catch (err: any) {
+    if (err.status === 404) throw err;
+    console.warn(`Native fetch error (${err.message}) on: ${fullUrl}. Trying Axios fallback...`);
+  }
+
+  // 2. Secondary: Axios client with automatic decompression
+  try {
+    const axiosClient = isAjax ? ajaxClient : client;
+    const axiosResp = await axiosClient.get(fullUrl, {
+      timeout: timeoutMs,
+      decompress: true,
+      maxRedirects: 5,
+    });
+    if (typeof axiosResp.data === "string") {
+      return axiosResp.data;
+    }
+    return JSON.stringify(axiosResp.data);
+  } catch (axiosErr: any) {
+    if (axiosErr.response?.status === 404) {
+      const notFoundErr: any = new Error("Page not found (404)");
+      notFoundErr.status = 404;
+      throw notFoundErr;
+    }
+    throw new Error(`Upstream fetch failed: ${axiosErr.message}`);
+  }
+}
 
 // Helper to extract anime list from HTML (category/search/archive pages)
 function extractAnimeList(html: string) {
@@ -75,7 +185,6 @@ function extractPopularItems(html: string, targetType?: string) {
   const $ = cheerio.load(html);
   const results: any[] = [];
 
-  // Look for popular widgets: #torofilm_wdgt_popular-3-aa-top (series) or #torofilm_wdgt_popular-2-aa-top (movies)
   $(".chart-item").each((_, el) => {
     const rankText = $(el).find(".chart-number").text().trim();
     const rank = parseInt(rankText, 10) || null;
@@ -116,7 +225,7 @@ function extractPopularItems(html: string, targetType?: string) {
 
 // Helper: Fetch episodes for a series (supports specific season or all seasons via AJAX)
 async function getEpisodesData(seriesSlug: string, requestedSeason?: number | "all") {
-  const { data } = await client.get(`/series/${seriesSlug}/`);
+  const data = await fetchPage(`/series/${seriesSlug}/`);
   const $ = cheerio.load(data);
 
   // Extract post ID for AJAX requests
@@ -174,8 +283,8 @@ async function getEpisodesData(seriesSlug: string, requestedSeason?: number | "a
   // If specific season requested and postId available
   if (typeof requestedSeason === "number" && requestedSeason > 0 && postId) {
     try {
-      const resp = await ajaxClient.get(`/wp-admin/admin-ajax.php?action=action_select_season&season=${requestedSeason}&post=${postId}`);
-      episodes = parseEpisodesFromHtml(resp.data, requestedSeason);
+      const respHtml = await fetchPage(`/wp-admin/admin-ajax.php?action=action_select_season&season=${requestedSeason}&post=${postId}`, { isAjax: true });
+      episodes = parseEpisodesFromHtml(respHtml, requestedSeason);
     } catch (err: any) {
       console.warn(`AJAX fetch failed for season ${requestedSeason}:`, err.message);
     }
@@ -183,8 +292,8 @@ async function getEpisodesData(seriesSlug: string, requestedSeason?: number | "a
     // Fetch all seasons in parallel via AJAX
     const seasonRequests = seasons.map(async (s) => {
       try {
-        const resp = await ajaxClient.get(`/wp-admin/admin-ajax.php?action=action_select_season&season=${s.num}&post=${postId}`);
-        return parseEpisodesFromHtml(resp.data, s.num);
+        const respHtml = await fetchPage(`/wp-admin/admin-ajax.php?action=action_select_season&season=${s.num}&post=${postId}`, { isAjax: true });
+        return parseEpisodesFromHtml(respHtml, s.num);
       } catch (err: any) {
         console.warn(`AJAX fetch failed for season ${s.num}:`, err.message);
         return [];
@@ -198,7 +307,14 @@ async function getEpisodesData(seriesSlug: string, requestedSeason?: number | "a
     episodes = parseEpisodesFromHtml(data, 1);
   }
 
-  // Sort episodes by season then episode number
+  // Deduplicate and sort episodes by season then episode number
+  const uniqueMap = new Map<string, any>();
+  for (const ep of episodes) {
+    if (!uniqueMap.has(ep.slug)) {
+      uniqueMap.set(ep.slug, ep);
+    }
+  }
+  episodes = Array.from(uniqueMap.values());
   episodes.sort((a, b) => a.season - b.season || a.num - b.num);
 
   return { postId, seasons, episodes };
@@ -206,26 +322,30 @@ async function getEpisodesData(seriesSlug: string, requestedSeason?: number | "a
 
 // ==========================================
 // 0. Health & Diagnostics
-app.get("/api/health", async (_req, res) => {
+router.get("/health", async (_req, res) => {
   const t0 = performance.now();
   let upstreamOnline = false;
   let upstreamLatency = 0;
+  let upstreamError: string | null = null;
   try {
-    const upstreamRes = await client.get("/", { timeout: 8000 });
-    upstreamOnline = upstreamRes.status === 200;
+    const html = await fetchPage("/", { timeoutMs: 8000 });
+    upstreamOnline = typeof html === "string" && (html.includes("animesalt") || html.includes("<html"));
     upstreamLatency = Math.round(performance.now() - t0);
-  } catch {
+  } catch (err: any) {
     upstreamOnline = false;
+    upstreamError = err.message;
   }
+
   res.json({
-    success: true,
-    status: "healthy",
+    success: upstreamOnline,
+    status: upstreamOnline ? "healthy" : "degraded",
     timestamp: new Date().toISOString(),
     uptime: Math.round(process.uptime()),
     upstream: {
-      source: "https://animesalt.cx",
+      source: BASE_URL,
       online: upstreamOnline,
       latencyMs: upstreamLatency,
+      error: upstreamError,
     },
     version: "2.0.0",
     endpointsCount: 12,
@@ -233,19 +353,18 @@ app.get("/api/health", async (_req, res) => {
 });
 
 // 1. Search with pagination
-app.get("/api/search", async (req, res) => {
+router.get("/search", async (req, res) => {
   const keyword = req.query.keyword as string;
   const page = parseInt(req.query.page as string || "1", 10);
-  if (!keyword) return res.status(400).json({ error: "Keyword required" });
+  if (!keyword) return res.status(400).json({ success: false, error: "Keyword required" });
 
   try {
     const searchUrl = page > 1 ? `/?s=${encodeURIComponent(keyword)}&paged=${page}` : "/";
-    const resp = await client.get(searchUrl, { params: page === 1 ? { s: keyword } : {} });
-    const results = extractAnimeList(resp.data);
+    const data = await fetchPage(searchUrl, { params: page === 1 ? { s: keyword } : {} });
+    const results = extractAnimeList(data);
     res.json({ success: true, page, data: results });
   } catch (e: any) {
-    if (e.response?.status === 404) {
-      // 404 means no further pages
+    if (e.status === 404 || e.response?.status === 404) {
       return res.json({ success: true, page, data: [] });
     }
     console.error("Search error:", e.message);
@@ -254,13 +373,12 @@ app.get("/api/search", async (req, res) => {
 });
 
 // 2. Latest Episodes
-app.get("/api/latest-episodes", async (req, res) => {
+router.get("/latest-episodes", async (_req, res) => {
   try {
-    const resp = await client.get("/");
-    const $ = cheerio.load(resp.data);
+    const data = await fetchPage("/");
+    const $ = cheerio.load(data);
     const results: any[] = [];
 
-    // Fresh Drops widget and latest article posts
     $("section.widget_list_episodes article.post, .widget_list_episodes article, article.post").each((_, el) => {
       const linkEl = $(el).find("a.lnk-blk").first();
       let url = linkEl.attr("href") || $(el).find("a[href*='/series/'], a[href*='/movies/'], a[href*='/episode/']").first().attr("href") || "";
@@ -292,15 +410,15 @@ app.get("/api/latest-episodes", async (req, res) => {
 });
 
 // 3. Popular Anime / Charts (Most-Watched Series & Films)
-app.get("/api/popular", async (req, res) => {
+router.get("/popular", async (req, res) => {
   const type = req.query.type as string; // 'series' | 'movies' | undefined
   try {
-    const resp = await client.get("/");
-    let results = extractPopularItems(resp.data, type);
+    const data = await fetchPage("/");
+    let results = extractPopularItems(data, type);
 
     // Fallback if chart-items not present: use On-Air / New Arrivals
     if (results.length === 0) {
-      const $ = cheerio.load(resp.data);
+      const $ = cheerio.load(data);
       $("section[id*='widget_list_movies_series'] article.post").each((i, el) => {
         const linkEl = $(el).find("a.lnk-blk").first();
         const url = linkEl.attr("href") || "";
@@ -334,15 +452,15 @@ app.get("/api/popular", async (req, res) => {
 });
 
 // 4. Completed Anime with pagination
-app.get("/api/completed", async (req, res) => {
+router.get("/completed", async (req, res) => {
   const page = parseInt(req.query.page as string || "1", 10);
   const path = page > 1 ? `/category/status/completed/page/${page}/` : "/category/status/completed/";
   try {
-    const resp = await client.get(path);
-    const results = extractAnimeList(resp.data);
+    const data = await fetchPage(path);
+    const results = extractAnimeList(data);
     res.json({ success: true, page, data: results });
   } catch (e: any) {
-    if (e.response?.status === 404) {
+    if (e.status === 404 || e.response?.status === 404) {
       return res.json({ success: true, page, data: [] });
     }
     console.error("Completed error:", e.message);
@@ -351,15 +469,15 @@ app.get("/api/completed", async (req, res) => {
 });
 
 // 5. Ongoing Anime with pagination
-app.get("/api/ongoing", async (req, res) => {
+router.get("/ongoing", async (req, res) => {
   const page = parseInt(req.query.page as string || "1", 10);
   const path = page > 1 ? `/category/status/ongoing/page/${page}/` : "/category/status/ongoing/";
   try {
-    const resp = await client.get(path);
-    const results = extractAnimeList(resp.data);
+    const data = await fetchPage(path);
+    const results = extractAnimeList(data);
     res.json({ success: true, page, data: results });
   } catch (e: any) {
-    if (e.response?.status === 404) {
+    if (e.status === 404 || e.response?.status === 404) {
       return res.json({ success: true, page, data: [] });
     }
     console.error("Ongoing error:", e.message);
@@ -368,18 +486,18 @@ app.get("/api/ongoing", async (req, res) => {
 });
 
 // 6. Type filter (anime / cartoon) with subtype (series / movies) & pagination
-app.get("/api/type/:type", async (req, res) => {
+router.get("/type/:type", async (req, res) => {
   const { type } = req.params;
   const subtype = (req.query.subtype as string) || "series";
   const page = parseInt(req.query.page as string || "1", 10);
   const path = page > 1 ? `/category/type/${type}/page/${page}/` : `/category/type/${type}/`;
 
   try {
-    const resp = await client.get(path, { params: { type: subtype } });
-    const results = extractAnimeList(resp.data);
+    const data = await fetchPage(path, { params: { type: subtype } });
+    const results = extractAnimeList(data);
     res.json({ success: true, page, type, subtype, data: results });
   } catch (e: any) {
-    if (e.response?.status === 404) {
+    if (e.status === 404 || e.response?.status === 404) {
       return res.json({ success: true, page, type, subtype, data: [] });
     }
     console.error("Type error:", e.message);
@@ -388,17 +506,17 @@ app.get("/api/type/:type", async (req, res) => {
 });
 
 // 7. Genre filter with pagination
-app.get("/api/genre/:category", async (req, res) => {
+router.get("/genre/:category", async (req, res) => {
   const { category } = req.params;
   const page = parseInt(req.query.page as string || "1", 10);
   const path = page > 1 ? `/category/genre/${category}/page/${page}/` : `/category/genre/${category}/`;
 
   try {
-    const resp = await client.get(path);
-    const results = extractAnimeList(resp.data);
+    const data = await fetchPage(path);
+    const results = extractAnimeList(data);
     res.json({ success: true, page, genre: category, data: results });
   } catch (e: any) {
-    if (e.response?.status === 404) {
+    if (e.status === 404 || e.response?.status === 404) {
       return res.json({ success: true, page, genre: category, data: [] });
     }
     console.error("Genre error:", e.message);
@@ -407,7 +525,7 @@ app.get("/api/genre/:category", async (req, res) => {
 });
 
 // 8. Anime Details / Info
-app.get("/api/info", async (req, res) => {
+router.get("/info", async (req, res) => {
   const animeId = req.query.id as string;
   if (!animeId) return res.status(400).json({ success: false, error: "Anime ID (slug) is required" });
 
@@ -416,12 +534,10 @@ app.get("/api/info", async (req, res) => {
     let type = "series";
 
     try {
-      const resp = await client.get(`/series/${animeId}/`);
-      data = resp.data;
+      data = await fetchPage(`/series/${animeId}/`);
     } catch (seriesErr: any) {
       // If series fails, try /movies/
-      const resp = await client.get(`/movies/${animeId}/`);
-      data = resp.data;
+      data = await fetchPage(`/movies/${animeId}/`);
       type = "movies";
     }
 
@@ -432,7 +548,6 @@ app.get("/api/info", async (req, res) => {
                  $(".sheader .poster img, .post-thumbnail img, img.wp-post-image, .poster img").first().attr("src") || "";
     if (poster && poster.startsWith("//")) poster = "https:" + poster;
 
-    // Accurate description selector for AnimeSalt
     const description = $("#overview-text p, #overview-text, .overview, .synopsis, .sinopsis, .entry-content p, .wp-content p")
                           .first().text().trim();
 
@@ -450,33 +565,26 @@ app.get("/api/info", async (req, res) => {
       if (l && !languages.includes(l)) languages.push(l);
     });
 
-    // Extract metadata
-    const info: Record<string, string[]> = {};
-    if (genres.length) info["genres"] = genres;
-    if (languages.length) info["languages"] = languages;
-
-    $(".sheader .data .extra .metadata span, .spe span, .info .meta span, .custom-fields span").each((_, el) => {
-      const text = $(el).text().trim();
+    // Extract additional metadata
+    const info: Record<string, string> = {};
+    $(".custom_fields, .spe, .extra, .metainfo, .info-content").find("span, li, p").each((_, el) => {
+      const text = $(el).text();
       const parts = text.split(":");
-      if (parts.length === 2) {
-        const key = parts[0].trim().toLowerCase();
-        const val = parts[1].trim();
-        if (key && val) {
-          if (!info[key]) info[key] = [];
-          info[key].push(val);
-        }
+      if (parts.length >= 2) {
+        const key = parts[0].trim().toLowerCase().replace(/[^a-z0-9]/g, "_");
+        const val = parts.slice(1).join(":").trim();
+        if (key && val) info[key] = val;
       }
     });
 
-    // Seasons and episodes summary
-    let seasons: any[] = [];
+    // Seasons and episodes info
+    let seasons: { num: number; title: string; episodeCount?: number }[] = [];
     let totalEpisodes = 0;
 
     if (type === "series") {
       try {
-        const epData = await getEpisodesData(animeId, 1);
+        const epData = await getEpisodesData(animeId);
         seasons = epData.seasons;
-        // Total episodes from sum of season counts or actual scraped count
         const sumCounts = seasons.reduce((sum, s) => sum + (s.episodeCount || 0), 0);
         totalEpisodes = sumCounts > 0 ? sumCounts : epData.episodes.length;
       } catch (epErr) {
@@ -525,7 +633,7 @@ app.get("/api/info", async (req, res) => {
 });
 
 // 9. Episodes List with optional season filter (?season=2 or default all seasons)
-app.get("/api/episodes/:animeId", async (req, res) => {
+router.get("/episodes/:animeId", async (req, res) => {
   const { animeId } = req.params;
   const seasonParam = req.query.season as string;
   const requestedSeason = seasonParam ? parseInt(seasonParam, 10) : undefined;
@@ -557,13 +665,13 @@ app.get("/api/episodes/:animeId", async (req, res) => {
 });
 
 // 10. Video Servers for an episode
-app.get("/api/servers", async (req, res) => {
+router.get("/servers", async (req, res) => {
   const { ep: epSlug } = req.query as { id?: string; ep: string };
   if (!epSlug) return res.status(400).json({ success: false, error: "Episode slug (ep) is required" });
 
   try {
     const epUrl = `/episode/${epSlug}/`;
-    const { data } = await client.get(epUrl);
+    const data = await fetchPage(epUrl);
     const $ = cheerio.load(data);
 
     const servers: any[] = [];
@@ -574,7 +682,6 @@ app.get("/api/servers", async (req, res) => {
       const serverInfo = $(el).find(".server-info").text().trim();
       const fullName = serverInfo ? `${serverNameHeader} - ${serverInfo}` : serverNameHeader;
 
-      // The corresponding iframe is inside #options-${index} or the index-th .video.aa-tb
       const videoContainer = $(`#options-${index}`).length ? $(`#options-${index}`) : $(".video.aa-tb").eq(index);
       const iframe = videoContainer.find("iframe");
       const embedUrl = iframe.attr("src") || iframe.attr("data-src") || "";
@@ -626,7 +733,7 @@ app.get("/api/servers", async (req, res) => {
 });
 
 // 11. Stream / Embed URL extractor
-app.get("/api/stream", async (req, res) => {
+router.get("/stream", async (req, res) => {
   const { ep: epSlug, server: serverParam, lang } = req.query as {
     id?: string;
     ep: string;
@@ -638,7 +745,7 @@ app.get("/api/stream", async (req, res) => {
 
   try {
     const epUrl = `/episode/${epSlug}/`;
-    const { data } = await client.get(epUrl);
+    const data = await fetchPage(epUrl);
     const $ = cheerio.load(data);
 
     const serverIndex = parseInt(serverParam || "0", 10);
@@ -663,7 +770,6 @@ app.get("/api/stream", async (req, res) => {
                 selectedLanguage = matchedLang.language;
               }
             } else if (languages.length > 0) {
-              // Default to English or first available if requested
               const english = languages.find((l: any) => l.language?.toLowerCase().includes("eng"));
               if (english) {
                 selectedLanguage = english.language;
@@ -695,5 +801,9 @@ app.get("/api/stream", async (req, res) => {
     res.status(500).json({ success: false, error: "Failed to scrape stream", details: e.message });
   }
 });
+
+// Register router on both /api (standard external URL) and / (Vercel serverless function root)
+app.use("/api", router);
+app.use("/", router);
 
 export default app;
