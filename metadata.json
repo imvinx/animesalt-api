@@ -1,0 +1,6 @@
+{
+  "name": "AnimeSalt API & Explorer",
+  "description": "A RESTful API scraping animesalt.cx for anime information, with a frontend to explore and test endpoints.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
