@@ -48,9 +48,15 @@ var CHROME_HEADERS = {
   "sec-ch-ua-platform": '"Windows"',
   "sec-fetch-dest": "document",
   "sec-fetch-mode": "navigate",
-  "sec-fetch-site": "none",
+  "sec-fetch-site": "same-origin",
   "sec-fetch-user": "?1",
   "Upgrade-Insecure-Requests": "1"
+};
+var MINIMAL_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Referer": "https://animesalt.cx/"
 };
 var AJAX_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -92,34 +98,53 @@ async function fetchPage(path2, options = {}) {
     }
     fullUrl = urlObj.toString();
   }
-  const reqHeaders = isAjax ? AJAX_HEADERS : CHROME_HEADERS;
-  const timeoutMs = options.timeoutMs || 14e3;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const resp = await fetch(fullUrl, {
-      method: "GET",
-      headers: reqHeaders,
-      signal: controller.signal,
-      redirect: "follow"
-    });
-    clearTimeout(timer);
-    if (resp.ok) {
-      const text = await resp.text();
-      if (!text.includes("Just a moment...") && !text.includes("cf-browser-verification")) {
-        return text;
+  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL;
+  if (proxyGateway) {
+    try {
+      const proxiedUrl = proxyGateway.includes("%s") ? proxyGateway.replace("%s", encodeURIComponent(fullUrl)) : `${proxyGateway.endsWith("/") || proxyGateway.endsWith("=") ? proxyGateway : proxyGateway + "/"}${encodeURIComponent(fullUrl)}`;
+      const proxyResp = await fetch(proxiedUrl, { headers: isAjax ? AJAX_HEADERS : CHROME_HEADERS });
+      if (proxyResp.ok) {
+        return await proxyResp.text();
       }
-      console.warn(`Direct fetch encountered Cloudflare challenge on: ${fullUrl}`);
-    } else if (resp.status === 404) {
-      const notFoundErr = new Error("Page not found (404)");
-      notFoundErr.status = 404;
-      throw notFoundErr;
-    } else {
-      console.warn(`Native fetch returned status ${resp.status} on: ${fullUrl}`);
+    } catch (proxyErr) {
+      console.warn(`Proxy gateway request failed: ${proxyErr.message}`);
     }
-  } catch (err) {
-    if (err.status === 404) throw err;
-    console.warn(`Native fetch error (${err.message}) on: ${fullUrl}. Trying Axios fallback...`);
+  }
+  const timeoutMs = options.timeoutMs || 14e3;
+  const headerProfiles = isAjax ? [AJAX_HEADERS] : [CHROME_HEADERS, MINIMAL_HEADERS];
+  let lastStatus = 0;
+  let lastBodySnippet = "";
+  for (const headers of headerProfiles) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const resp = await fetch(fullUrl, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+        redirect: "follow"
+      });
+      clearTimeout(timer);
+      lastStatus = resp.status;
+      if (resp.ok) {
+        const text = await resp.text();
+        if (!text.includes("Just a moment...") && !text.includes("cf-browser-verification")) {
+          return text;
+        }
+        console.warn(`Direct fetch hit Cloudflare challenge on: ${fullUrl}`);
+      } else if (resp.status === 404) {
+        const notFoundErr = new Error("Page not found (404)");
+        notFoundErr.status = 404;
+        throw notFoundErr;
+      } else {
+        const text = await resp.text().catch(() => "");
+        lastBodySnippet = text.slice(0, 160).replace(/\s+/g, " ").trim();
+        console.warn(`Native fetch returned status ${resp.status} on: ${fullUrl}`);
+      }
+    } catch (err) {
+      if (err.status === 404) throw err;
+      console.warn(`Native fetch error (${err.message}) on: ${fullUrl}`);
+    }
   }
   try {
     const axiosClient = isAjax ? ajaxClient : client;
@@ -138,7 +163,9 @@ async function fetchPage(path2, options = {}) {
       notFoundErr.status = 404;
       throw notFoundErr;
     }
-    throw new Error(`Upstream fetch failed: ${axiosErr.message}`);
+    const status = axiosErr.response?.status || lastStatus;
+    const details = axiosErr.response?.data ? String(axiosErr.response.data).slice(0, 160).replace(/\s+/g, " ").trim() : lastBodySnippet || axiosErr.message;
+    throw new Error(`Upstream AnimeSalt HTTP ${status}: ${details}`);
   }
 }
 function extractAnimeList(html) {
@@ -296,8 +323,32 @@ router.get("/health", async (_req, res) => {
       error: upstreamError
     },
     version: "2.0.0",
-    endpointsCount: 12
+    endpointsCount: 13
   });
+});
+router.get("/debug", async (_req, res) => {
+  const result = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    vercelRegion: process.env.VERCEL_REGION || "local",
+    nodeVersion: process.version,
+    target: BASE_URL
+  };
+  try {
+    const t0 = performance.now();
+    const resp = await fetch(`${BASE_URL}/`, {
+      headers: CHROME_HEADERS,
+      redirect: "follow"
+    });
+    result.status = resp.status;
+    result.latencyMs = Math.round(performance.now() - t0);
+    result.headers = Object.fromEntries(resp.headers.entries());
+    const body = await resp.text();
+    result.bodyPreview = body.slice(0, 300).replace(/\s+/g, " ").trim();
+    result.isCloudflareChallenge = body.includes("Just a moment...") || body.includes("cf-browser-verification");
+  } catch (err) {
+    result.error = err.message;
+  }
+  res.json(result);
 });
 router.get("/search", async (req, res) => {
   const keyword = req.query.keyword;

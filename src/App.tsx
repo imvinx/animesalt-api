@@ -684,7 +684,7 @@ export default function App() {
               GET
             </span>
             <div className="flex-1 flex items-center bg-slate-900/90 rounded-xl px-3 py-2 border border-slate-800 font-mono text-xs text-indigo-300 overflow-x-auto">
-              <span className="text-slate-500 mr-1 select-none">http://localhost:3000</span>
+              <span className="text-slate-500 mr-1 select-none">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}</span>
               <span className="text-white font-semibold">{consoleUrl}</span>
             </div>
             <button
@@ -1343,7 +1343,7 @@ export default function App() {
                       <Terminal className="w-4 h-4 text-indigo-400" /> cURL Command
                     </h4>
                     <pre className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-cyan-300 overflow-x-auto">
-                      curl -X GET "http://localhost:3000{consoleUrl}"
+                      curl -X GET "{typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}{consoleUrl}"
                     </pre>
                   </div>
 
@@ -1352,7 +1352,7 @@ export default function App() {
                       <Code className="w-4 h-4 text-emerald-400" /> JavaScript (Fetch API)
                     </h4>
                     <pre className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-emerald-300 overflow-x-auto">
-{`const response = await fetch("http://localhost:3000${consoleUrl}");
+{`const response = await fetch("${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}${consoleUrl}");
 const data = await response.json();
 console.log(data);`}
                     </pre>
@@ -1365,7 +1365,7 @@ console.log(data);`}
                     <pre className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-amber-300 overflow-x-auto">
 {`import requests
 
-url = "http://localhost:3000${consoleUrl}"
+url = "${typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}${consoleUrl}"
 response = requests.get(url)
 data = response.json()
 print(data)`}
