@@ -86,6 +86,26 @@ var ajaxClient = import_axios.default.create({
   decompress: true,
   maxRedirects: 5
 });
+function buildProxyUrl(gateway, targetUrl) {
+  const cleanGateway = gateway.trim().replace(/\/+$/, "");
+  if (cleanGateway.includes("%s")) {
+    return cleanGateway.replace("%s", encodeURIComponent(targetUrl));
+  }
+  if (cleanGateway.includes("url=")) {
+    const separator = cleanGateway.includes("?") ? "&" : "?";
+    return `${cleanGateway}${separator}url=${encodeURIComponent(targetUrl)}`;
+  }
+  if (cleanGateway.endsWith("=")) {
+    return `${cleanGateway}${encodeURIComponent(targetUrl)}`;
+  }
+  try {
+    const parsed = new URL(targetUrl);
+    return `${cleanGateway}${parsed.pathname}${parsed.search}`;
+  } catch {
+    const pathAndQuery = targetUrl.replace(/^https?:\/\/[^/]+/, "");
+    return `${cleanGateway}${pathAndQuery.startsWith("/") ? "" : "/"}${pathAndQuery}`;
+  }
+}
 async function fetchPage(path2, options = {}) {
   const isAjax = !!options.isAjax;
   let fullUrl = path2.startsWith("http") ? path2 : `${BASE_URL}${path2.startsWith("/") ? "" : "/"}${path2}`;
@@ -101,13 +121,31 @@ async function fetchPage(path2, options = {}) {
   const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL;
   if (proxyGateway) {
     try {
-      const proxiedUrl = proxyGateway.includes("%s") ? proxyGateway.replace("%s", encodeURIComponent(fullUrl)) : `${proxyGateway.endsWith("/") || proxyGateway.endsWith("=") ? proxyGateway : proxyGateway + "/"}${encodeURIComponent(fullUrl)}`;
-      const proxyResp = await fetch(proxiedUrl, { headers: isAjax ? AJAX_HEADERS : CHROME_HEADERS });
+      const proxiedUrl = buildProxyUrl(proxyGateway, fullUrl);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12e3);
+      const proxyResp = await fetch(proxiedUrl, {
+        method: "GET",
+        headers: isAjax ? AJAX_HEADERS : CHROME_HEADERS,
+        signal: controller.signal
+      });
+      clearTimeout(timer);
       if (proxyResp.ok) {
-        return await proxyResp.text();
+        const text = await proxyResp.text();
+        if (!text.includes("Just a moment...") && !text.includes("cf-browser-verification")) {
+          return text;
+        }
+        console.warn(`Proxy gateway returned Cloudflare challenge on: ${proxiedUrl}`);
+      } else if (proxyResp.status === 404) {
+        const notFoundErr = new Error("Page not found (404)");
+        notFoundErr.status = 404;
+        throw notFoundErr;
+      } else {
+        console.warn(`Proxy gateway returned status ${proxyResp.status} on: ${proxiedUrl}`);
       }
     } catch (proxyErr) {
-      console.warn(`Proxy gateway request failed: ${proxyErr.message}`);
+      if (proxyErr.status === 404) throw proxyErr;
+      console.warn(`Proxy gateway request failed (${proxyErr.message}) on: ${proxyGateway}`);
     }
   }
   const timeoutMs = options.timeoutMs || 14e3;
@@ -327,26 +365,46 @@ router.get("/health", async (_req, res) => {
   });
 });
 router.get("/debug", async (_req, res) => {
+  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL || null;
   const result = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     vercelRegion: process.env.VERCEL_REGION || "local",
     nodeVersion: process.version,
-    target: BASE_URL
+    target: BASE_URL,
+    configuredProxyUrl: proxyGateway ? proxyGateway.slice(0, 35) + "..." : null
   };
+  if (proxyGateway) {
+    try {
+      const testUrl = buildProxyUrl(proxyGateway, `${BASE_URL}/`);
+      const pt0 = performance.now();
+      const pResp = await fetch(testUrl, { headers: CHROME_HEADERS });
+      const pText = await pResp.text();
+      result.proxyDiagnostic = {
+        requestedUrl: testUrl,
+        status: pResp.status,
+        latencyMs: Math.round(performance.now() - pt0),
+        isOk: pResp.ok,
+        isHtml: pText.includes("<html") || pText.includes("<article"),
+        isChallenge: pText.includes("Just a moment...") || pText.includes("cf-browser-verification"),
+        preview: pText.slice(0, 250).replace(/\s+/g, " ").trim()
+      };
+    } catch (pErr) {
+      result.proxyDiagnostic = { error: pErr.message };
+    }
+  }
   try {
     const t0 = performance.now();
     const resp = await fetch(`${BASE_URL}/`, {
       headers: CHROME_HEADERS,
       redirect: "follow"
     });
-    result.status = resp.status;
-    result.latencyMs = Math.round(performance.now() - t0);
-    result.headers = Object.fromEntries(resp.headers.entries());
-    const body = await resp.text();
-    result.bodyPreview = body.slice(0, 300).replace(/\s+/g, " ").trim();
-    result.isCloudflareChallenge = body.includes("Just a moment...") || body.includes("cf-browser-verification");
+    result.directUpstream = {
+      status: resp.status,
+      latencyMs: Math.round(performance.now() - t0),
+      isChallenge: (await resp.text()).includes("Just a moment...")
+    };
   } catch (err) {
-    result.error = err.message;
+    result.directUpstream = { error: err.message };
   }
   res.json(result);
 });

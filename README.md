@@ -205,18 +205,43 @@ Click **Edit code** on your new worker and replace everything in `worker.js` wit
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    // Forward the request path and query parameters to animesalt.cx
-    const targetUrl = "https://animesalt.cx" + url.pathname + url.search;
 
-    return fetch(targetUrl, {
-      method: request.method,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://animesalt.cx/",
-      },
-    });
+    // Support query parameter: ?url=https://...
+    let target = url.searchParams.get("url");
+
+    // Support path-based target: /https://animesalt.cx/...
+    if (!target && url.pathname.startsWith("/http")) {
+      target = url.pathname.slice(1) + url.search;
+    }
+
+    // Support direct reverse proxy path: /series/naruto/
+    if (!target) {
+      target = "https://animesalt.cx" + url.pathname + url.search;
+    }
+
+    try {
+      const response = await fetch(target, {
+        method: request.method,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": "https://animesalt.cx/",
+        },
+      });
+
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set("Access-Control-Allow-Origin", "*");
+      newHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    } catch (err) {
+      return new Response("Proxy Error: " + err.message, { status: 500 });
+    }
   }
 };
 ```
