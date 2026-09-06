@@ -11,13 +11,13 @@
 [![GitHub stars](https://img.shields.io/github/stars/imvinx/animesalt-api?logo=github&color=gold)](https://github.com/imvinx/animesalt-api/stargazers)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
 
-**A high-performance, real-time scraping API and interactive streaming web platform powered by [animesalt.cx](https://animesalt.cx).**
+**A high-performance, real-time scraping API and interactive streaming web platform powered by [animesalt.cx](https://animesalt.cx). Built with resilient Cloudflare edge routing, multi-season AJAX episode discovery, and multi-language audio stream decoding.**
 
 ---
 
 ### 🚀 One-Click Cloud Deployment
 
-Deploy your own instance of AnimeSalt API & Web Player to the cloud instantly:
+Deploy your own instance of AnimeSalt API & Web Player to the cloud in under 60 seconds:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fimvinx%2Fanimesalt-api)
 &nbsp;&nbsp;
@@ -31,25 +31,34 @@ Deploy your own instance of AnimeSalt API & Web Player to the cloud instantly:
 
 ## 📖 Table of Contents
 
-- [Overview & What We Built](#-overview--what-we-built)
-- [Architecture & How It Works](#-architecture--how-it-works)
-- [Features](#-features)
-- [One-Click Cloud Deployment](#-one-click-cloud-deployment)
+- [🌟 Overview & What We Built](#-overview--what-we-built)
+- [🏗️ Architecture & How It Works](#️-architecture--how-it-works)
+- [🚀 Features](#-features)
+- [☁️ One-Click Cloud Deployment](#️-one-click-cloud-deployment)
   - [Deploy to Vercel](#deploy-to-vercel)
   - [Deploy to Railway](#deploy-to-railway)
   - [Deploy to Render](#deploy-to-render)
-- [🛡️ Cloudflare Bypass & Proxy Setup (Essential for Vercel)](#-cloudflare-bypass--proxy-setup-essential-for-vercel)
+- [🛡️ Cloudflare Bypass & Proxy Setup Guide (Essential for Vercel)](#️-cloudflare-bypass--proxy-setup-guide-essential-for-vercel)
   - [Why Cloudflare Challenges Cloud Hosts](#why-cloudflare-challenges-cloud-hosts)
   - [The 100% Free Solution: Cloudflare Worker Proxy](#the-100-free-solution-cloudflare-worker-proxy)
-  - [Step-by-Step Setup Guide](#step-by-step-setup-guide)
-  - [Alternative Commercial Proxies](#alternative-commercial-proxies)
-- [⚙️ Environment Variables](#-environment-variables)
-- [Local Installation & Setup](#-local-installation--setup)
+  - [Step-by-Step: Creating Your Own Cloudflare Worker (Takes 2 Minutes)](#step-by-step-creating-your-own-cloudflare-worker-takes-2-minutes)
+  - [How to Configure PROXY_URL in Vercel or .env](#how-to-configure-proxy_url-in-vercel-or-env)
+  - [Alternative: Commercial Rotating Proxies (ScraperAPI, Scrapfly)](#alternative-commercial-rotating-proxies-scraperapi-scrapfly)
+- [⚠️ Technical Challenges, Mistakes & Gotchas (Post-Mortem & Troubleshooting)](#️-technical-challenges-mistakes--gotchas-post-mortem--troubleshooting)
+  - [1. Cloudflare Bot Fight Mode (403 Forbidden: "Just a moment...")](#1-cloudflare-bot-fight-mode-403-forbidden-just-a-moment)
+  - [2. Cloudflare Dashboard Confusion: "Workers" vs "Pages"](#2-cloudflare-dashboard-confusion-workers-vs-pages)
+  - [3. Proxy URL Formatting & Path Mismatches](#3-proxy-url-formatting--path-mismatches)
+  - [4. Drag-and-Drop GitHub Upload: "Fewer than 100 files" Error](#4-drag-and-drop-github-upload-fewer-than-100-files-error)
+  - [5. Client Hardcoded to localhost:3000](#5-client-hardcoded-to-localhost3000)
+  - [6. Vercel SPA Routing & Refresh 404s](#6-vercel-spa-routing--refresh-404s)
+- [⚙️ Environment Variables Reference](#️-environment-variables-reference)
+- [💻 Local Installation & Setup](#-local-installation--setup)
   - [Prerequisites](#prerequisites)
   - [Quick Start Guide](#quick-start-guide)
   - [Build for Production](#build-for-production)
-- [API Endpoints Reference](#-api-endpoints-reference)
-  - [1. Health & Status (`/api/health`)](#1-health--status-apihealth)
+- [📡 API Endpoints Reference](#-api-endpoints-reference)
+  - [0. Backend Health Check (`/api/health`)](#0-backend-health-check-apihealth)
+  - [1. Proxy & Upstream Diagnostics (`/api/debug`)](#1-proxy--upstream-diagnostics-apidebug)
   - [2. Search Anime (`/api/search`)](#2-search-anime-apisearch)
   - [3. Popular Charts (`/api/popular`)](#3-popular-charts-apipopular)
   - [4. Latest Episodes (`/api/latest-episodes`)](#4-latest-episodes-apilatest-episodes)
@@ -61,67 +70,87 @@ Deploy your own instance of AnimeSalt API & Web Player to the cloud instantly:
   - [10. Multi-Season Episodes (`/api/episodes/:animeId`)](#10-multi-season-episodes-apiepisodesanimeid)
   - [11. Detect Video Servers (`/api/servers`)](#11-detect-video-servers-apiservers)
   - [12. Video Stream Resolver (`/api/stream`)](#12-video-stream-resolver-apistream)
-- [Live Scraper Studio & Console](#-live-scraper-studio--console)
-- [Changelog & Migration from Anikoto](#-changelog--migration-from-anikoto)
-- [Legal Disclaimer](#-legal-disclaimer)
+- [🎛️ Live Scraper Studio & Diagnostic Center](#️-live-scraper-studio--diagnostic-center)
+- [🔄 Migration Notes & Changelog (from Anikoto)](#-migration-notes--changelog-from-anikoto)
+- [🤝 Contributing & Open Source Roadmap](#-contributing--open-source-roadmap)
+- [⚖️ Legal Disclaimer](#️-legal-disclaimer)
 
 ---
 
 ## 🌟 Overview & What We Built
 
-This project is a complete, full-stack rewrite of the anime API platform, transitioning from legacy providers to **AnimeSalt (`https://animesalt.cx`)**. 
+This project is a complete, production-grade rewrite of an anime streaming and scraping API engine. The project was migrated from a defunct upstream provider (`anikototv.to`) to **AnimeSalt (`https://animesalt.cx`)**.
 
-It provides:
-1. **RESTful Scraper API Backend** (`/api/*`): Clean, JSON-based endpoints with Cheerio HTML parsing, Axios client handling, multi-season parallel AJAX episode extraction, and automatic audio language decoding.
-2. **Interactive Streaming Web Application**: Modern React 19 + Tailwind CSS frontend with a dark neon interface, anime catalog, visual posters, quality tags, and responsive embedded video playback.
-3. **Live Scraper API Studio & Diagnostic Console**: A full-featured developer environment integrated into the web app that offers live request inspection, parameter tweaking, execution latency timers, visual card previews, and a 1-click **Full System Health Check suite**.
+### What Was Done:
+1. **Engineered a 13-Endpoint Scraper API**: Reverse-engineered the WordPress/ToroFilm CMS schema used by AnimeSalt. Developed clean Cheerio DOM traversal routines to extract anime titles, high-res posters, release years, quality tags, and synopsis details.
+2. **Parallel Season AJAX Scraping**: Solved the single-season limitation on series pages. Series like *Naruto* (220 episodes across 5 seasons) or *Attack on Titan* dynamically load episodes via WordPress AJAX (`/wp-admin/admin-ajax.php?action=action_select_season`). The API fires concurrent `Promise.all` requests across all seasons, scraping hundreds of episodes in ~500ms.
+3. **Multi-Language Audio Decoder**: Uncovered and decoded base64 JSON payload arrays embedded in player script tags, allowing users to select discrete audio tracks (Japanese, English, Hindi, Tamil, Telugu).
+4. **Cloudflare Edge Bypass Architecture**: Designed a resilient edge proxy mechanism that overcomes Cloudflare Super Bot Fight Mode (403 Forbidden) on cloud serverless platforms like Vercel and AWS Lambda.
+5. **Interactive Streaming Web Application**: Built a sleek React 19 + Tailwind CSS single-page app (SPA) featuring an anime catalog, search with debounce, video player modal, and full multi-season episode browsing.
+6. **Live Scraper Studio & Diagnostic Center**: Built a developer studio into the web app featuring an automated 1-click **Full System Health Check**, live endpoint playground, cURL/Fetch/Python code generators, and raw JSON inspectors.
 
 ---
 
-## 🏗 Architecture & How It Works
+## 🏗️ Architecture & How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Client / Browser                       │
-│    (Browse Catalog, Watch Stream, Live Scraper Studio)      │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ HTTP / JSON
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Express.js Backend                       │
-│                   (server.ts / api/index.ts)                │
-└──────┬───────────────────────┬───────────────────────┬──────┘
-       │                       │                       │
-       ▼                       ▼                       ▼
-┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-│  Direct DOM  │       │ WordPress    │       │ Multi-Lang   │
-│   Scraper    │       │ AJAX Engine  │       │ Base64 Audio │
-│  (Cheerio)   │       │ (admin-ajax) │       │ Decoder      │
-└──────┬───────┘       └──────┬───────┘       └──────┬───────┘
-       │                       │                       │
-       └───────────────────────┼───────────────────────┘
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Upstream: animesalt.cx                    │
-│   (Series Pages, Charts, Video Players, CDN Iframe Hosts)   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Client / Browser                              │
+│   (Vite + React 19 SPA: Browse Catalog, Watch Stream, Scraper Studio)   │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │ Dynamic HTTP / JSON
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      Express Backend / Serverless                       │
+│                   (server.ts / api/index.ts on Vercel)                  │
+│                                                                         │
+│   ┌──────────────────────┐  ┌────────────────────┐  ┌───────────────┐   │
+│   │   buildProxyUrl()    │  │ Native Fetch / TLS │  │ Axios Client  │   │
+│   │ (Worker/Reverse/GW)  │  │ Undici Engine      │  │ Auto Decompr  │   │
+│   └──────────┬───────────┘  └─────────┬──────────┘  └───────┬───────┘   │
+└──────────────┼────────────────────────┼─────────────────────┼───────────┘
+               │                        │                     │
+               ▼ (Via Cloudflare Edge)   │ (Local Dev direct)  │
+┌──────────────────────────────────────┐ │                     │
+│       Cloudflare Worker Proxy        │ │                     │
+│    (*.workers.dev Edge Network)      │ │                     │
+│   Cloudflare NEVER challenges itself │ │                     │
+└──────────────────┬───────────────────┘ │                     │
+                   │                     │                     │
+                   └─────────────────────┼─────────────────────┘
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Upstream: animesalt.cx                          │
+│        (WordPress ToroFilm CMS • Cloudflare Bot Protected)              │
+│                                                                         │
+│   ┌────────────────────┐  ┌──────────────────┐  ┌───────────────────┐   │
+│   │  article.post DOM  │  │  admin-ajax.php  │  │  Multi-Lang Base64│   │
+│   │ (Catalog & Search) │  │ (Season Episodes)│  │ (Audio Stream Map)│   │
+│   └────────────────────┘  └──────────────────┘  └───────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Catalog & Search Scraper**: Parses WordPress/ToroFilm article blocks (`article.post`), chart widgets (`.chart-item`), and category archive grids to extract IDs, clean titles, high-resolution poster images, release years, and quality badges.
-2. **Parallel Season Collector**: Because AnimeSalt loads subsequent seasons dynamically, the backend targets `/wp-admin/admin-ajax.php?action=action_select_season` in parallel via `Promise.all`. For large anime (like *Naruto* with 220 episodes across 5 seasons), all episodes and titles are scraped and assembled in ~500ms.
-3. **Iframe & Multi-Audio Extractor**: Locates video players (`.video.aa-tb`), matches them with named server controls (`SERVER 1 - MyStream`, `SERVER 2 - Abyss`), and decodes base64 JSON payload arrays into discrete audio options (`English`, `Japanese`, `Hindi`, `Tamil`, `Telugu`).
+### Request Flow Explained:
+1. **Client Request**: Browser calls `/api/popular`, `/api/search`, or `/api/episodes/naruto`.
+2. **Proxy Resolution (`buildProxyUrl`)**:
+   - In production (Vercel), requests are directed through `PROXY_URL` (defaults to the built-in Cloudflare Worker proxy `https://animesalt-proxy.v1nx.workers.dev`).
+   - In local development, requests connect directly without requiring any proxy.
+3. **Cheerio HTML Parsing**: The HTML response from AnimeSalt is parsed into structured, strongly-typed JSON.
+4. **Parallel AJAX Harvesting**: For multi-season series, `admin-ajax.php` requests are fired concurrently for seasons 2..N to assemble the entire episode catalog.
+5. **Client Rendering**: Clean JSON is sent to the client, which renders cards, episode selectors, and video streams.
 
 ---
 
 ## 🚀 Features
 
-- ⚡ **Lightning Fast**: Sub-second scraping response times with optimized Cheerio DOM traversal.
-- 🎯 **12 Robust API Endpoints**: Covers searching, charts, metadata, multi-season episodes, servers, and streams.
-- 🌐 **Full Pagination Support**: Supports `?page=N` across search, ongoing, completed, types, and genres.
-- 📺 **Multi-Season Scraping**: Correctly retrieves full episode guides for anime with multiple seasons (e.g. Naruto, Bleach, Attack on Titan).
-- 🎙 **Multi-Language Audio**: Identifies multi-language audio streams and enables language-specific video links.
-- 🛠 **Integrated API Studio**: Built-in visual dashboard for testing parameters, copying JSON, downloading responses, and viewing cURL/fetch/Python code snippets.
-- 🩺 **Full System Health Suite**: One-click test suite that verifies all 12 endpoints against the upstream website in real time.
+- ⚡ **Sub-Second Scraper**: Highly optimized Cheerio traversal returning structured JSON in ~200-500ms.
+- 🎯 **13 Production Endpoints**: Covers catalog search, popular rankings, latest drops, ongoing, completed, types, genres, seasons, servers, streaming links, health, and diagnostics.
+- 🛡️ **Zero-Config Cloud Deployment**: Built-in default Cloudflare Worker fallback means Vercel deployments work immediately without mandatory configuration.
+- 📺 **Complete Multi-Season Episode Support**: Automatic parallel fetching of all seasons via WordPress AJAX.
+- 🎙️ **Multi-Language Audio Track Detection**: Decodes base64 player payloads for Japanese, English, Hindi, Tamil, and Telugu dubs.
+- 🌐 **Full Pagination**: Seamless `?page=N` support on search, ongoing, completed, types, and genres.
+- 🩺 **Automated Health Suite**: 1-click test suite in the web studio verifies all endpoints against upstream in real-time.
+- 💻 **Cross-Platform Ready**: Run as a standalone Express server (Node.js/Docker/Railway/Render) or as a serverless microservice on Vercel.
 
 ---
 
@@ -133,10 +162,12 @@ Vercel is fully supported out of the box with the included [`vercel.json`](./ver
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fimvinx%2Fanimesalt-api)
 
 1. Click the button above or import your repository into Vercel.
-2. Framework Preset: **Vite**
-3. Build Command: `npm run build`
-4. Output Directory: `dist`
-5. Click **Deploy**. Vercel will automatically route `/api/*` to the serverless function and `/*` to the SPA.
+2. **Framework Preset**: `Vite`
+3. **Build Command**: `npm run build`
+4. **Output Directory**: `dist`
+5. **Environment Variables** (Optional, recommended for high traffic):
+   - `PROXY_URL`: Your own Cloudflare Worker URL (see [Proxy Setup](#-cloudflare-bypass--proxy-setup-guide-essential-for-vercel)).
+6. Click **Deploy**. Vercel will route `/api/*` to the serverless function and `/*` to the React SPA.
 
 ### Deploy to Railway
 Railway automatically detects Node.js and builds using the repository configuration.
@@ -155,66 +186,73 @@ Render provides easy deployment for Web Services.
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fimvinx%2Fanimesalt-api)
 
 1. Click the button above to deploy.
-2. Environment: **Node**
-3. Build Command: `npm install && npm run build`
-4. Start Command: `npm start`
+2. **Environment**: `Node`
+3. **Build Command**: `npm install && npm run build`
+4. **Start Command**: `npm start`
 5. Click **Create Web Service**.
 
 ---
 
-## 🛡️ Cloudflare Bypass & Proxy Setup (Essential for Vercel)
+## 🛡️ Cloudflare Bypass & Proxy Setup Guide (Essential for Vercel)
 
 ### Why Cloudflare Challenges Cloud Hosts
-When you run this project **locally** on your computer, requests to `https://animesalt.cx` connect directly with 100% success because residential internet connections are trusted.
+When you run this project **locally on your computer**, requests to `https://animesalt.cx` connect directly with 100% success because residential home internet connections are trusted.
 
-However, when deployed on **Vercel** (or other AWS/cloud hosting providers), Cloudflare's Bot Fight Mode detects data-center IP ranges and serves an interactive JavaScript challenge:
+However, when deployed on **Vercel, AWS Lambda, Railway, or Render**, Cloudflare's Super Bot Fight Mode detects data-center IP addresses and serves an interactive JavaScript challenge:
 ```html
-HTTP 403: <title>Just a moment...</title>
+HTTP 403 Forbidden: <title>Just a moment...</title>
 ```
-Pure serverless Node.js functions on AWS cannot solve interactive Turnstile challenges on their own.
+Serverless Node.js functions on AWS cannot execute interactive browser challenges (Turnstile), which causes scrapers to fail with `HTTP 403`.
 
 ---
 
 ### The 100% Free Solution: Cloudflare Worker Proxy
 Cloudflare **never** challenges or blocks requests that originate from **Cloudflare Workers**, because Workers execute directly inside Cloudflare's own global edge network.
 
-Cloudflare offers a **Free Tier with 100,000 requests per day**, which is more than enough for personal or production use.
+Cloudflare provides a **Free Tier with 100,000 requests per day**, which is more than enough for personal or production use.
 
-```
-┌─────────────────────────┐          ┌─────────────────────────┐          ┌─────────────────────────┐
-│     Vercel Server      │  HTTPS   │    Cloudflare Worker    │ Internal │      animesalt.cx       │
-│   (Serverless API)      ├─────────►│  (Global Edge Network)  ├─────────►│  (Protected Upstream)  │
-│  Sends PROXY_URL req   │          │ Never Challenged by CF  │          │   Returns 200 OK HTML   │
-└─────────────────────────┘          └─────────────────────────┘          └─────────────────────────┘
-```
+> [!NOTE]
+> This repository includes a default fallback worker (`https://animesalt-proxy.v1nx.workers.dev`) so the project works out-of-the-box. However, if you are hosting this project for production or public use, you should create your own free Cloudflare Worker to avoid sharing the 100k daily rate limit!
 
 ---
 
-### Step-by-Step Setup Guide (Takes ~2 minutes)
+### Step-by-Step: Creating Your Own Cloudflare Worker (Takes 2 Minutes)
 
-#### 1. Create a Free Worker
-1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) (create a free account if you don't have one).
-2. In the left-hand navigation, click **Workers & Pages** -> **Create Application**.
-3. Click **Create Worker**.
-4. Give your worker a name (e.g. `animesalt-proxy`) and click **Deploy**.
+#### Step 1: Create a Free Cloudflare Account
+1. Visit [dash.cloudflare.com](https://dash.cloudflare.com/) and sign up for a free account (no credit card required).
 
-#### 2. Paste the Worker Code
-Click **Edit code** on your new worker and replace everything in `worker.js` with this code:
+#### Step 2: Navigate to Workers (NOT Pages!)
+> [!IMPORTANT]
+> In Cloudflare Dashboard, look at the left sidebar menu:
+> 1. Click **Compute (Workers)** or **Workers & Pages**.
+> 2. Click the **Workers** tab (do **NOT** select *Pages*).
+> 3. Click **Create Application** (or **Create Worker**).
+> 4. Give your worker a name, e.g. `my-animesalt-proxy`.
+> 5. Click **Deploy**.
+
+#### Step 3: Paste the Universal Worker Script
+1. On your newly created worker page, click **Edit code** (in the top right corner).
+2. Delete everything in the `worker.js` editor and paste the following tested code:
 
 ```javascript
+/**
+ * Universal AnimeSalt Edge Reverse Proxy
+ * Runs on Cloudflare Workers (100,000 req/day free)
+ * Bypasses Cloudflare Bot Fight Mode completely.
+ */
 export default {
   async fetch(request) {
     const url = new URL(request.url);
 
-    // Support query parameter: ?url=https://...
+    // 1. Support query parameter: ?url=https://animesalt.cx/...
     let target = url.searchParams.get("url");
 
-    // Support path-based target: /https://animesalt.cx/...
+    // 2. Support path-based target: /https://animesalt.cx/...
     if (!target && url.pathname.startsWith("/http")) {
       target = url.pathname.slice(1) + url.search;
     }
 
-    // Support direct reverse proxy path: /series/naruto/
+    // 3. Support direct reverse proxy path: /series/naruto/ or /wp-admin/...
     if (!target) {
       target = "https://animesalt.cx" + url.pathname + url.search;
     }
@@ -230,9 +268,11 @@ export default {
         },
       });
 
+      // Inject CORS headers so browsers and serverless functions can read the response
       const newHeaders = new Headers(response.headers);
       newHeaders.set("Access-Control-Allow-Origin", "*");
       newHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      newHeaders.set("Access-Control-Allow-Headers", "*");
 
       return new Response(response.body, {
         status: response.status,
@@ -245,48 +285,134 @@ export default {
   }
 };
 ```
-Click **Deploy** to save and publish your worker.
 
-#### 3. Copy Your Worker URL
-Your worker URL will look like:
-```
-https://animesalt-proxy.YOUR_SUBDOMAIN.workers.dev
-```
-
-#### 4. Configure in Vercel
-1. Open your project on the [Vercel Dashboard](https://vercel.com/dashboard).
-2. Go to **Settings** -> **Environment Variables**.
-3. Add a new variable:
-   - **Key**: `PROXY_URL`
-   - **Value**: `https://animesalt-proxy.YOUR_SUBDOMAIN.workers.dev` (replace with your actual worker URL)
-4. Click **Save**.
-5. Go to the **Deployments** tab -> Click the `...` (three dots) next to your latest deployment -> **Redeploy**.
-
-Once redeployed, every single endpoint (`/api/popular`, `/api/search`, `/api/episodes`, `/api/stream`) will immediately return **200 OK** with live anime data!
+3. Click **Deploy** (or **Save and Deploy**).
+4. Copy your Worker URL. It will look like:
+   ```
+   https://my-animesalt-proxy.YOUR_SUBDOMAIN.workers.dev
+   ```
 
 ---
 
-### Alternative Commercial Proxies
-If you prefer not to use Cloudflare Workers, you can use any commercial rotating or scraping proxy by setting the `SCRAPER_PROXY` environment variable in Vercel:
+### How to Configure PROXY_URL in Vercel or .env
+
+#### In Vercel:
+1. Open your project on the [Vercel Dashboard](https://vercel.com/dashboard).
+2. Navigate to **Settings** -> **Environment Variables**.
+3. Add a new variable:
+   - **Key**: `PROXY_URL`
+   - **Value**: `https://my-animesalt-proxy.YOUR_SUBDOMAIN.workers.dev` (your Worker URL)
+4. Click **Save**.
+5. Go to the **Deployments** tab -> Click the `...` (three dots) next to your latest deployment -> **Redeploy**.
+
+#### In Local `.env` (Optional):
+```env
+PROXY_URL=https://my-animesalt-proxy.YOUR_SUBDOMAIN.workers.dev
+```
+
+---
+
+### Alternative: Commercial Rotating Proxies (ScraperAPI, Scrapfly)
+If you prefer not to use Cloudflare Workers, you can use any commercial scraping proxy gateway by setting the `SCRAPER_PROXY` environment variable:
 
 | Provider | Format for `SCRAPER_PROXY` | Free Tier |
 |---|---|---|
 | **ScraperAPI** | `https://api.scraperapi.com?api_key=YOUR_KEY&url=` | 5,000 req/mo free |
 | **Scrapfly** | `https://api.scrapfly.io/scrape?key=YOUR_KEY&url=` | 1,000 req/mo free |
-| **Webshare** | Configure via HTTP proxy or gateway | 10 proxies free |
+| **Webshare** | Configure via HTTP proxy URL | 10 free proxies |
+
+The backend's `buildProxyUrl()` function automatically detects `url=` query formats and forwards requests accordingly.
 
 ---
 
-## ⚙️ Environment Variables
+## ⚠️ Technical Challenges, Mistakes & Gotchas (Post-Mortem & Troubleshooting)
 
-Copy `.env.example` to `.env` for local customization:
+During the migration and deployment of this project, several non-obvious technical hurdles were encountered. This guide documents what went wrong, why it happened, and how it was resolved so open-source contributors can avoid the same traps.
 
-| Variable | Required | Default | Description |
+### 1. Cloudflare Bot Fight Mode (403 Forbidden: "Just a moment...")
+- **The Symptom**: The API worked perfectly on local machines, but on Vercel returned `500 Internal Server Error` with:
+  ```
+  Upstream AnimeSalt HTTP 403: <title>Just a moment...</title>
+  ```
+- **The Root Cause**: Cloudflare uses IP intelligence to categorize visitors. Residential ISP addresses (home broadband/fiber) are treated as real users, whereas cloud hosting ranges (AWS Lambda, Google Cloud, DigitalOcean) are flagged as potential botnets. Headless Node.js HTTP clients cannot pass Cloudflare's interactive Turnstile challenges.
+- **The Solution**: Routing requests through a Cloudflare Worker edge proxy (`*.workers.dev`). Cloudflare never triggers Bot Fight Mode against its own internal serverless edge network.
+
+---
+
+### 2. Cloudflare Dashboard Confusion: "Workers" vs "Pages"
+- **The Mistake**: Clicking on Cloudflare **Pages** instead of **Workers** when following deployment steps.
+- **The Confusion**: Cloudflare groups both under the heading "Workers & Pages" in its dashboard sidebar. However:
+  - **Pages** is designed for hosting static frontend assets (HTML, CSS, JS bundles).
+  - **Workers** is a V8 JavaScript serverless execution environment with request interception and fetch capabilities.
+- **The Fix**: Always create a **Worker** when deploying the reverse proxy script.
+
+---
+
+### 3. Proxy URL Formatting & Path Mismatches
+- **The Bug**: Different proxy gateways expect different URL structures. Appending target URLs blindly caused `404 Not Found` or `Malformed URL` exceptions.
+  - Some workers expect: `https://worker.dev/series/naruto` (reverse proxy style).
+  - Others expect: `https://worker.dev/?url=https://animesalt.cx/series/naruto` (query parameter style).
+  - Commercial gateways expect: `https://api.scraperapi.com?api_key=KEY&url=https%3A%2F%2F...` (encoded query).
+- **The Fix**: Implemented a resilient `buildProxyUrl()` helper in [`api/index.ts`](./api/index.ts) that automatically detects query formats (`url=`, `%s`) or falls back to reverse-proxy path appending.
+
+---
+
+### 4. Drag-and-Drop GitHub Upload: "Fewer than 100 files" Error
+- **The Mistake**: Attempting to upload the project by dragging the local folder directly into GitHub's web interface, resulting in:
+  ```
+  "Yikes, that's a lot of files! Please upload fewer than 100 files."
+  ```
+- **The Cause**: The project folder contained `node_modules` (over 15,000 files) and `dist/`. GitHub's browser upload tool has a strict hard limit of 100 files.
+- **The Fix**: Never drag and drop folders into GitHub. Always use Git CLI commands in your terminal:
+  ```bash
+  git init
+  git add .
+  git commit -m "Initial commit"
+  git branch -M main
+  git remote add origin https://github.com/YOUR_USERNAME/animesalt-api.git
+  git push -u origin main
+  ```
+  The repository's [`.gitignore`](./.gitignore) file automatically excludes `node_modules/`, `.env`, and build artifacts, allowing Git to commit and push cleanly in seconds.
+
+---
+
+### 5. Client Hardcoded to localhost:3000
+- **The Bug**: On the deployed Vercel site (`testttggdgdegeg.vercel.app`), the homepage opened but catalog cards and search results remained completely blank. The browser DevTools console showed:
+  ```
+  GET http://localhost:3000/api/popular net::ERR_CONNECTION_REFUSED
+  ```
+- **The Cause**: The frontend code in `src/App.tsx` had hardcoded `http://localhost:3000` as the API base URL. When users visited the site on the internet, their browser attempted to fetch API data from their own computer!
+- **The Fix**: Refactored the API client to use dynamic origins (`window.location.origin` or relative `/api/...`), allowing the application to work identically on localhost, Vercel, Railway, Render, or any custom domain.
+
+---
+
+### 6. Vercel SPA Routing & Refresh 404s
+- **The Bug**: Visiting the root `/` worked, but refreshing the page on subpaths returned Vercel's `404: NOT_FOUND`.
+- **The Cause**: Single Page Applications (SPAs) use client-side routing. When a browser requests a subpath directly, Vercel looks for a physical file matching that path instead of delegating to `index.html`.
+- **The Fix**: Added the rewrite rule in [`vercel.json`](./vercel.json):
+  ```json
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+  ```
+  This guarantees that all non-API paths are cleanly routed to the Vite SPA bundle.
+
+---
+
+## ⚙️ Environment Variables Reference
+
+Copy [`.env.example`](./.env.example) to `.env` for local customization:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Default Value | Description |
 |---|---|---|---|
-| `PORT` | No | `3000` | Port number for the Express backend when running locally. |
-| `NODE_ENV` | No | `development` | Node environment mode (`development` or `production`). |
-| `PROXY_URL` | Recommended on Vercel | `""` | URL of your Cloudflare Worker proxy to bypass Cloudflare Bot challenges. |
-| `SCRAPER_PROXY` | Optional | `""` | Commercial scraping proxy gateway (e.g. ScraperAPI). |
+| `PORT` | No | `3000` | Port number for the Express server when running locally or in Docker. |
+| `NODE_ENV` | No | `development` | Mode: `development` or `production`. |
+| `PROXY_URL` | Recommended on Vercel | Built-in fallback worker | URL of your Cloudflare Worker edge proxy (e.g. `https://my-proxy.workers.dev`). |
+| `SCRAPER_PROXY` | Optional | `""` | Gateway URL for commercial scraping proxies (e.g. ScraperAPI, Scrapfly). |
 
 ---
 
@@ -294,7 +420,8 @@ Copy `.env.example` to `.env` for local customization:
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) version **18.0.0** or higher
-- [npm](https://www.npmjs.com/) (bundled with Node)
+- [npm](https://www.npmjs.com/) (bundled with Node.js)
+- [Git](https://git-scm.com/)
 
 ### Quick Start Guide
 
@@ -313,9 +440,11 @@ Copy `.env.example` to `.env` for local customization:
    ```bash
    npm run dev
    ```
+   > [!TIP]
+   > For local development, **no proxy is needed**! The scraper will connect directly to AnimeSalt and work out of the box.
 
 4. **Open in browser:**
-   Open [http://localhost:3000](http://localhost:3000) to view the web application and interactive API studio.
+   Navigate to [http://localhost:3000](http://localhost:3000) to access the interactive web player and Live Scraper Studio.
 
 ### Build for Production
 
@@ -325,7 +454,7 @@ npm run build
 ```
 This builds the Vite frontend into `dist/` and compiles `server.ts` into a self-contained CommonJS server at `dist/server.cjs`.
 
-To run the production server:
+To run the compiled production server:
 ```bash
 npm start
 ```
@@ -344,11 +473,15 @@ All endpoints return standardized JSON payloads:
 
 ---
 
-### 1. Health & Status (`/api/health`)
-Checks backend health and live upstream connectivity to `https://animesalt.cx`.
+### 0. Backend Health Check (`/api/health`)
+Checks backend uptime and validates real-time connectivity to the upstream `https://animesalt.cx` server.
 
 - **Method**: `GET`
 - **URL**: `/api/health`
+- **Example Request**:
+  ```bash
+  curl "http://localhost:3000/api/health"
+  ```
 - **Example Response**:
   ```json
   {
@@ -359,24 +492,61 @@ Checks backend health and live upstream connectivity to `https://animesalt.cx`.
     "upstream": {
       "source": "https://animesalt.cx",
       "online": true,
-      "latencyMs": 639
+      "latencyMs": 639,
+      "error": null
     },
     "version": "2.0.0",
-    "endpointsCount": 12
+    "endpointsCount": 13
+  }
+  ```
+
+---
+
+### 1. Proxy & Upstream Diagnostics (`/api/debug`)
+Diagnostic endpoint that tests both your configured proxy gateway and direct upstream connectivity, reporting response latency, Cloudflare challenge status, and preview snippets.
+
+- **Method**: `GET`
+- **URL**: `/api/debug`
+- **Example Request**:
+  ```bash
+  curl "http://localhost:3000/api/debug"
+  ```
+- **Example Response**:
+  ```json
+  {
+    "timestamp": "2026-09-06T07:35:10.123Z",
+    "vercelRegion": "bom1",
+    "nodeVersion": "v20.x",
+    "target": "https://animesalt.cx",
+    "configuredProxyUrl": "https://animesalt-proxy.v1nx.workers.dev...",
+    "proxyDiagnostic": {
+      "requestedUrl": "https://animesalt-proxy.v1nx.workers.dev/",
+      "status": 200,
+      "latencyMs": 412,
+      "isOk": true,
+      "isHtml": true,
+      "isChallenge": false,
+      "preview": "<!DOCTYPE html><html lang=\"en-US\">..."
+    },
+    "directUpstream": {
+      "status": 403,
+      "latencyMs": 85,
+      "isChallenge": true
+    }
   }
   ```
 
 ---
 
 ### 2. Search Anime (`/api/search`)
-Search anime titles by keyword with pagination.
+Search anime titles by keyword with full pagination support.
 
 - **Method**: `GET`
 - **URL**: `/api/search?keyword={keyword}&page={page}`
 - **Query Parameters**:
   | Parameter | Type | Required | Default | Description |
   |---|---|---|---|---|
-  | `keyword` | string | **Yes** | — | Search term (e.g. `naruto`, `bleach`) |
+  | `keyword` | string | **Yes** | — | Search term (e.g. `naruto`, `bleach`, `solo leveling`) |
   | `page` | number | No | `1` | Results page number |
 - **Example Request**:
   ```bash
@@ -404,14 +574,14 @@ Search anime titles by keyword with pagination.
 ---
 
 ### 3. Popular Charts (`/api/popular`)
-Extracts the top 50 ranked titles from the Most-Watched Series and Most-Watched Films charts.
+Extracts the top 50 ranked anime titles from the Most-Watched Series and Most-Watched Films charts.
 
 - **Method**: `GET`
 - **URL**: `/api/popular?type={type}`
 - **Query Parameters**:
   | Parameter | Type | Required | Default | Description |
   |---|---|---|---|---|
-  | `type` | string | No | `all` | Filter by `series` or `movies` |
+  | `type` | string | No | `all` | Filter by `series`, `movies`, or `all` |
 - **Example Request**:
   ```bash
   curl "http://localhost:3000/api/popular?type=series"
@@ -437,10 +607,14 @@ Extracts the top 50 ranked titles from the Most-Watched Series and Most-Watched 
 ---
 
 ### 4. Latest Episodes (`/api/latest-episodes`)
-Scrapes fresh episode drops and new arrivals.
+Scrapes fresh episode drops and newly released content.
 
 - **Method**: `GET`
 - **URL**: `/api/latest-episodes`
+- **Example Request**:
+  ```bash
+  curl "http://localhost:3000/api/latest-episodes"
+  ```
 - **Example Response**:
   ```json
   {
@@ -465,6 +639,10 @@ Returns currently airing anime series with pagination.
 - **Method**: `GET`
 - **URL**: `/api/ongoing?page={page}`
 - **Query Parameters**: `page` (optional, default: `1`)
+- **Example Request**:
+  ```bash
+  curl "http://localhost:3000/api/ongoing?page=1"
+  ```
 
 ---
 
@@ -474,6 +652,10 @@ Returns completed anime titles with pagination.
 - **Method**: `GET`
 - **URL**: `/api/completed?page={page}`
 - **Query Parameters**: `page` (optional, default: `1`)
+- **Example Request**:
+  ```bash
+  curl "http://localhost:3000/api/completed?page=1"
+  ```
 
 ---
 
@@ -495,7 +677,7 @@ Filter by catalog category (`anime` or `cartoon`) and subtype (`series` or `movi
 ---
 
 ### 8. Filter by Genre (`/api/genre/:category`)
-Filter titles by genre with pagination.
+Filter titles by genre category with pagination.
 
 - **Method**: `GET`
 - **URL**: `/api/genre/:category?page={page}`
@@ -510,7 +692,7 @@ Filter titles by genre with pagination.
 ---
 
 ### 9. Anime Metadata (`/api/info`)
-Retrieves detailed metadata, synopsis, poster, genres, season list, and episode totals.
+Retrieves detailed metadata, synopsis description, poster, genres, season list, and episode totals.
 
 - **Method**: `GET`
 - **URL**: `/api/info?id={animeSlug}`
@@ -636,7 +818,7 @@ Resolves direct embed URLs and handles language-specific audio streams.
   | Parameter | Type | Required | Default | Description |
   |---|---|---|---|---|
   | `ep` | string | **Yes** | — | Episode slug (e.g. `naruto-1x1`) |
-  | `server` | number | No | `0` | Server index (0, 1, etc.) |
+  | `server` | number | No | `0` | Server index (`0`, `1`, etc.) |
   | `lang` | string | No | — | Preferred audio language (e.g. `English`, `Hindi`) |
 - **Example Request**:
   ```bash
@@ -658,24 +840,24 @@ Resolves direct embed URLs and handles language-specific audio streams.
 
 ---
 
-## 🎛 Live Scraper Studio & Console
+## 🎛️ Live Scraper Studio & Diagnostic Center
 
-The web application includes a dedicated **Live Scraper Studio & Diagnostic Center** designed for API consumers, developers, and administrators.
+The web application includes a built-in **Live Scraper Studio & Diagnostic Center** designed for developers, testers, and API consumers.
 
-Switch to **"Live Scraper Studio"** in the top navigation to access:
-- **1-Click Health Check Test Suite**: Runs automated verification across all 12 endpoints with response timing and pass/fail reports.
-- **Dynamic Endpoint Form**: Interactive input controls with sample anime chips, genre selector pills, and pagination controls.
+Access it by clicking **"Live Scraper Studio"** in the top navigation bar:
+- **1-Click Health Check Suite**: Runs an automated real-time test across all endpoints with response timing and status checks.
+- **Dynamic Endpoint Playground**: Interactive parameter controls with sample anime chips, genre selector pills, and pagination sliders.
 - **Live Response Inspector**:
   - **Visual Preview Mode**: Displays scraped anime cards, synopsis metadata, episode grids, server lists, and live embedded video playback.
-  - **Formatted JSON**: Syntax-highlighted output with in-JSON search, copy, and file download.
-  - **Code Generator**: Ready-to-use snippets in cURL, JavaScript Fetch, and Python Requests.
+  - **Formatted JSON**: Syntax-highlighted output with in-JSON search, copy to clipboard, and JSON file download.
+  - **Code Generator**: Ready-to-use snippets in `cURL`, `JavaScript Fetch`, and `Python Requests`.
   - **Execution History**: Session log with status indicators, execution latencies, and 1-click query replay.
 
 ---
 
-## 🔄 Changelog & Migration from Anikoto
+## 🔄 Migration Notes & Changelog (from Anikoto)
 
-| Feature | Legacy Version (anikototv.to) | Modern Version (animesalt.cx) |
+| Feature | Legacy Version (`anikototv.to`) | Modern Version (`animesalt.cx`) |
 |---|---|---|
 | **Upstream Provider** | `anikototv.to` (defunct) | `https://animesalt.cx` (WordPress/ToroFilm CMS) |
 | **Popular Charts** | Fragmented HTML queries | Structured extraction from `.chart-item` widgets (50 items) |
@@ -683,7 +865,28 @@ Switch to **"Live Scraper Studio"** in the top navigation to access:
 | **Audio Tracks** | Single audio stream | Base64 decoded multi-language audio options |
 | **Pagination** | Unsupported | Full `?page=N` support across all category and search routes |
 | **Frontend UI** | Static raw JSON viewer | Full dark-mode streaming player + Live Scraper Studio |
-| **Health Checks** | None | Real-time `/api/health` + automated diagnostic test suite |
+| **Health & Diagnostics** | None | Real-time `/api/health`, `/api/debug` & automated test suite |
+| **Cloudflare Bypass** | None (Fails on Vercel) | Resilient Cloudflare Worker edge reverse proxy architecture |
+
+---
+
+## 🤝 Contributing & Open Source Roadmap
+
+Contributions, suggestions, and pull requests are welcome!
+
+1. Fork the repository on GitHub.
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m "Add amazing feature"`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a **Pull Request**.
+
+### Roadmap:
+- [x] Multi-season episode scraping via WordPress AJAX
+- [x] Multi-language audio decoding (Japanese, English, Hindi, Tamil, Telugu)
+- [x] Cloudflare Worker edge proxy bypass for Vercel
+- [x] Full interactive web player and API studio
+- [ ] Redis caching layer for high-throughput deployments
+- [ ] Subtitle (.vtt / .srt) track extraction
 
 ---
 
