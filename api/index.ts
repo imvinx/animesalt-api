@@ -117,8 +117,9 @@ async function fetchPage(path: string, options: FetchPageOptions = {}): Promise<
     fullUrl = urlObj.toString();
   }
 
-  // 0. Check for optional custom proxy / scraper gateway configured in environment
-  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL;
+  // 0. Check for proxy / scraper gateway (defaults to deployed Cloudflare Worker)
+  const DEFAULT_PROXY_URL = "https://animesalt-proxy.v1nx.workers.dev";
+  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL || DEFAULT_PROXY_URL;
   if (proxyGateway) {
     try {
       const proxiedUrl = buildProxyUrl(proxyGateway, fullUrl);
@@ -438,13 +439,14 @@ router.get("/health", async (_req, res) => {
 
 // Diagnostic / Debug endpoint for inspecting upstream connectivity & Cloudflare status
 router.get("/debug", async (_req, res) => {
-  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL || null;
+  const DEFAULT_PROXY_URL = "https://animesalt-proxy.v1nx.workers.dev";
+  const proxyGateway = process.env.SCRAPER_PROXY || process.env.PROXY_URL || DEFAULT_PROXY_URL;
   const result: any = {
     timestamp: new Date().toISOString(),
     vercelRegion: process.env.VERCEL_REGION || "local",
     nodeVersion: process.version,
     target: BASE_URL,
-    configuredProxyUrl: proxyGateway ? (proxyGateway.slice(0, 35) + "...") : null,
+    configuredProxyUrl: proxyGateway ? (proxyGateway.slice(0, 45) + "...") : null,
   };
 
   // 1. Diagnostic test on configured proxy
